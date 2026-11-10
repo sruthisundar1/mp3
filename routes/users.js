@@ -5,6 +5,7 @@
 //query sort from https://mongoosejs.com/docs/api/query.html#Query.prototype.sort() 
 
 const User = require('../models/user.js');
+const Task = require('../models/task.js');
 
 module.exports = function (router) {
 
@@ -116,6 +117,36 @@ module.exports = function (router) {
 
     })
 
+    //claude help 
+    usersIdRoute.delete(async function (req, res) {
+
+        const userId = req.params["id"];
+
+        let deletedUser = null;
+        try {
+            await Task.db.transaction(async (session) => {
+
+                deletedUser = await User.findByIdAndDelete(userId, {session: session});
+                if (deletedUser !== null) {
+                    await Task.updateMany(
+                        {assignedUser : userId},
+                        {$set: {assignedUser: "", assignedUserName: "unassigned"}},
+                        {session: session}
+                    );
+                }
+            });
+        } catch (err) {
+            if (err.name === "CastError") {
+                return res.status(404).json({message: "Not Found", data: "User not found"});
+            }
+            return res.status(500).json({message: "Internal Server Error", data: "User not able to be deleted"});
+        }
+        if (deletedUser === null) {
+            return res.status(404).json({message: "Not Found", data: "User not found"});
+        }
+        res.status(200).json({message: "OK", data: deletedUser});
+    });
+        
     return router;
 
 }
