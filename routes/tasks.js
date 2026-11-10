@@ -2,6 +2,7 @@
 
 //loading file with require from https://nodejs.org/api/modules.html
 const Task = require('../models/task.js');
+const User = require('../models/user.js');
 
 module.exports = function (router) {
 
@@ -108,6 +109,35 @@ module.exports = function (router) {
             }
     
         })
+    //claude help 
+    tasksIdRoute.delete(async function (req, res) {
+
+        const taskId = req.params["id"];
+
+        let deletedTask = null;
+        try {
+            await Task.db.transaction(async (session) => {
+
+                deletedTask = await Task.findByIdAndDelete(taskId, {session: session});
+                if (deletedTask !== null && deletedTask.assignedUser) {
+                    await User.updateOne(
+                        {_id: deletedTask.assignedUser},
+                        {$pull: {pendingTasks: taskId}},
+                        {session: session}
+                    );
+                }
+            });
+        } catch (err) {
+            if (err.name === "CastError") {
+                return res.status(404).json({message: "Not Found", data: "Task not found"});
+            }
+            return res.status(500).json({message: "Internal Server Error", data: "Task not able to be deleted"});
+        }
+        if (deletedTask === null) {
+            return res.status(404).json({message: "Not Found", data: "Task not found"});
+        }
+        res.status(200).json({message: "OK", data: deletedTask});
+    });
     
 
     return router;
