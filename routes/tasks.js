@@ -79,6 +79,37 @@ module.exports = function (router) {
         res.status(201).json({message: "Created", data: savedTask});
     });
 
+    tasksIdRoute.get(async function (req, res) {
+    
+            const taskId = req.params["id"];
+            const query = Task.findById(taskId);
+            query.collection(Task.collection);
+    
+            // TODO: Add query conditions (where, limit, etc)
+            //   if (req.query["where"]) { query.where(...); }
+    
+            try {
+                if (req.query["select"]) {
+                    query.select(JSON.parse(req.query["select"]));
+                }
+                const result = await query.exec();
+                if (result === null) {
+                    return res.status(404).json({message: "Not Found", data: "Task not found"});
+                }
+                res.status(200).json({message: "OK", data: result});
+            } catch (err) {
+                if (err.name === "CastError") {
+                    return res.status(404).json({message: "Not Found", data: "Task not found"});
+                }
+                if (err.name === "SyntaxError") {
+                    return res.status(400).json({message: "Bad Request", data: "Invalid JSON value in a parameter."});
+                }
+                res.status(500).json({message: "Internal Server Error", data: "Not able to get data"});
+            }
+    
+        })
+    
+
     return router;
 
 }
