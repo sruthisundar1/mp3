@@ -25,6 +25,32 @@ module.exports = function (router) {
         }
     });
 
+    tasksRoute.post(async function (req, res) {
+        const newTask = new Task(req.body);
+        newTask.dateCreated = Date.now(); //faq said dateCreated must be set by the server when the document is created
+        const err = newTask.validateSync();
+
+        if (err) {
+            return res.status(400).json({message: "Bad Request", data: "A task name or deadline is missing/wrong type"});
+        }
+
+        let savedTask = null;
+        try {
+            // Mongoose will commit the transaction if the async function
+            // executes successfully and attempt to retry if there was a retriable error.
+            await Task.db.transaction(async (session) => {
+
+                // Multiple db queries (i.e re-assigning tasks) can have concurrency issues
+                //   Lost updates, Inconsistent retrieval, etc
+                savedTask = await newTask.save({session: session}); //claude help 
+            });
+        } catch (e) {
+            return res.status(500).json({message: "Internal Server Error", data: "Task unable to be created"});
+        }
+        // ...
+        res.status(201).json({message: "Created", data: savedTask});
+    });
+
     return router;
 
 }
