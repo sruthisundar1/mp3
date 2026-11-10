@@ -2,6 +2,8 @@
 
 //loading file with require from https://nodejs.org/api/modules.html
 //findOne usage from https://mongoosejs.com/docs/api/model.html#Model.findOne() 
+//query sort from https://mongoosejs.com/docs/api/query.html#Query.prototype.sort() 
+
 const User = require('../models/user.js');
 
 module.exports = function (router) {
@@ -49,12 +51,38 @@ module.exports = function (router) {
 
         // TODO: Add query conditions (where, limit, etc)
         // if (req.query["where"]) { query.where(...); }
-
-        try {
-            const result = await query.exec();
-            res.status(200).json({message: "OK", data: result}); //adapted from README
+        
+        //query sort from https://mongoosejs.com/docs/api/query.html#Query.prototype.sort() 
+        try { //claude help
+            if (req.query["where"]) {
+                query.where(JSON.parse(req.query["where"]));
+            }
+            if (req.query["sort"]) {
+                query.sort(JSON.parse(req.query["sort"]));
+            }
+            if (req.query["select"]) {
+                query.select(JSON.parse(req.query["select"]));
+            }
+            if (req.query["skip"]) {
+                query.skip(JSON.parse(req.query["skip"]));
+            }
+            if (req.query["limit"]) {
+                query.limit(JSON.parse(req.query["limit"]));
+            }
         } catch (err) {
-            res.status(500).json({message: "Error on Server", data: "Unable to get data"});
+            return res.status(400).json({message: "Bad Request", data: "Invalid JSON value in a parameter."});
+        }
+        try { //claude help
+            if (req.query["count"] === "true") {
+                query.countDocuments();
+            }
+            const results = await query.exec();
+            res.status(200).json({ message: "OK", data: results });
+        } catch (err) {
+            if (err.name === "CastError") {
+                return res.status(400).json({ message: "Bad Request", data: "Invalid JSON value in a parameter." });
+            }
+            res.status(500).json({ message: "Internal Server Error", data: "Not able to get data" });
         }
     });
 
