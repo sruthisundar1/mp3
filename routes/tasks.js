@@ -139,6 +139,86 @@ module.exports = function (router) {
         return res.status(204).end();
     });
     
+    tasksIdRoute.put(async function (req, res) {
+        const taskId = req.params["id"];
+        const query = Task.findById(taskId);
+        query.collection(Task.collection);
+
+        let currTask = null;
+        try {
+            currTask = await query.exec();
+        } catch (err) {
+            return res.status(404).json({message: "Not Found", data: "Task not found"});
+        }
+        if (currTask === null) {
+            return res.status(404).json({message: "Not Found", data: "Task not found"});
+        }
+
+        const updatedTask = new Task(req.body);
+        updatedTask._id = currTask._id;
+        updatedTask.dateCreated = currTask.dateCreated;
+        const err = updatedTask.validateSync();
+
+        if (err) {
+            return res.status(400).json({message: "Bad Request", data: "A task name or deadline is missing/wrong type"});
+        }
+
+        let correctName = "unassigned";
+        if (updatedTask.assignedUser !== "") {
+            let foundUser = null;
+            try {
+                foundUser = await User.findById(updatedTask.assignedUser);
+            } catch (err) {
+                return res.status(400).json({message: "Bad Request", data: "assignedUser is not a valid id"});
+            }
+            if (foundUser === null) {
+                return res.status(404).json({message: "Not Found", data: "assignedUser does not exist"});
+            }
+            correctName = foundUser.name;
+        }
+
+        if (req.body.assignedUserName === undefined) {
+            updatedTask.assignedUserName = correctName;
+        }
+        if (updatedTask.assignedUserName !== correctName) {
+            return res.status(400).json({message: "Bad Request", data: "assignedUserName does not match assignedUser"});
+        }
+
+        let savedTask = null;
+        try {
+            // Mongoose will commit the transaction if the async function
+            // executes successfully and attempt to retry if there was a retriable error.
+            await Task.db.transaction(async (session) => {
+
+                // Multiple db queries (i.e re-assigning tasks) can have concurrency issues
+                //   Lost updates, Inconsistent retrieval, etc
+                savedTask = await Task.findOneAndReplace(
+                    {_id: taskId},
+                    updatedTask.toObject(),
+                    {session: session, returnDocument: "after"}
+                );
+
+                if (currTask.assignedUser !== "") {
+                    await User.updateOne(
+                        {_id: currTask.assignedUser},
+                        {$pull: {pendingTasks: taskId}},
+                        {session: session}
+                    );
+                }
+                if (updatedTask.assignedUser !== "" && updatedTask.completed === false) {
+                    await User.updateOne(
+                        {_id: updatedTask.assignedUser},
+                        {$addToSet: {pendingTasks: taskId}},
+                        {session: session}
+                    );
+                }
+            });
+        } catch (e) {
+            return res.status(500).json({message: "Internal Server Error", data: "Task not able to be updated."});
+        }
+        // ...
+        res.status(200).json({message: "OK", data: savedTask});
+    });
 
     return router;
 
