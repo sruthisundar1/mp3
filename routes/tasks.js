@@ -136,7 +136,7 @@ module.exports = function (router) {
         if (deletedTask === null) {
             return res.status(404).json({message: "Not Found", data: "Task not found"});
         }
-        res.status(200).json({message: "OK", data: deletedTask});
+        return res.status(204).end();
     });
     
 

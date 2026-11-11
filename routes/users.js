@@ -144,7 +144,7 @@ module.exports = function (router) {
         if (deletedUser === null) {
             return res.status(404).json({message: "Not Found", data: "User not found"});
         }
-        res.status(200).json({message: "OK", data: deletedUser});
+        return res.status(204).end();
     });
         
     return router;
