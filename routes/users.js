@@ -3,7 +3,9 @@
 //loading file with require from https://nodejs.org/api/modules.html
 //findOne usage from https://mongoosejs.com/docs/api/model.html#Model.findOne() 
 //query sort from https://mongoosejs.com/docs/api/query.html#Query.prototype.sort() 
-
+//findOneAndReplace and returnDocument help from https://mongoosejs.com/docs/api/model.html#Model.findOneAndReplace()
+//session help from https://mongoosejs.com/docs/transactions.html 
+//set help from https://www.mongodb.com/docs/manual/reference/operator/update/set/ 
 const User = require('../models/user.js');
 const Task = require('../models/task.js');
 
@@ -145,6 +147,104 @@ module.exports = function (router) {
             return res.status(404).json({message: "Not Found", data: "User not found"});
         }
         return res.status(204).end();
+    });
+    //findOneAndReplace and returnDocument help from https://mongoosejs.com/docs/api/model.html#Model.findOneAndReplace()
+    //session help from https://mongoosejs.com/docs/transactions.html 
+    //set help from https://www.mongodb.com/docs/manual/reference/operator/update/set/ 
+    usersIdRoute.put(async function (req, res) {
+        const userId = req.params["id"];
+        const query = User.findById(userId);
+        query.collection(User.collection);
+
+        let currUser = null;
+        try {
+            currUser = await query.exec();
+        } catch (err) {
+            return res.status(404).json({message: "Not Found", data: "User not found"});
+        }
+        if (currUser === null) {
+            return res.status(404).json({message: "Not Found", data: "User not found"});
+        }
+
+        if (req.body.pendingTasks !== undefined && Array.isArray(req.body.pendingTasks) === false) {
+            return res.status(400).json({message: "Bad Request", data: "pendingTasks has to be a list"});
+        }
+
+        const updatedUser = new User(req.body);
+        updatedUser._id = currUser._id;
+        updatedUser.dateCreated = currUser.dateCreated;
+        const err = updatedUser.validateSync();
+
+        if (err) {
+            return res.status(400).json({message: "Bad Request", data: "A user name or email is missing/wrong type"});
+        }
+
+        const taskIds = updatedUser.pendingTasks;
+
+        let foundTasks = [];
+        try {
+            foundTasks = await Task.find({_id: {$in: taskIds}});
+        } catch (err) {
+            return res.status(400).json({message: "Bad Request", data: "pendingTasks has an invalid id"});
+        }
+
+        const foundUser = await User.findOne({email: updatedUser.email});
+        if (foundUser !== null && foundUser._id.toString() !== currUser._id.toString()) {
+            return res.status(400).json({message: "Bad Request", data: "This email is used by another user."});
+        }
+
+        if (foundTasks.length !== taskIds.length) {
+            return res.status(404).json({message: "Not Found", data: "A task in pendingTasks does not exist"});
+        }
+
+        for (const task of foundTasks) {
+            if (task.completed === true) {
+                return res.status(400).json({message: "Bad Request", data: "A completed task cannot be in pendingTasks"});
+            }
+        }
+
+        let savedUser = null;
+        try {
+            // Mongoose will commit the transaction if the async function
+            // executes successfully and attempt to retry if there was a retriable error.
+            await User.db.transaction(async (session) => {
+
+                // Multiple db queries (i.e re-assigning tasks) can have concurrency issues
+                //   Lost updates, Inconsistent retrieval, etc
+                await User.updateMany(
+                    {},
+                    {$pull: {pendingTasks: {$in: taskIds}}},
+                    {session: session}
+                );
+
+                await Task.updateMany(
+                    {assignedUser: userId, completed: false, _id: {$nin: taskIds}},
+                    {$set: {assignedUser: "", assignedUserName: "unassigned"}},
+                    {session: session}
+                );
+
+                await Task.updateMany(
+                    {_id: {$in: taskIds}},
+                    {$set: {assignedUser: userId}},
+                    {session: session}
+                );
+
+                await Task.updateMany(
+                    {assignedUser: userId},
+                    {$set: {assignedUserName: updatedUser.name}},
+                    {session: session}
+                );
+
+                savedUser = await User.findOneAndReplace(
+                    {_id: userId},
+                    updatedUser.toObject(),
+                    {session: session, returnDocument: "after"}
+                );
+            });
+        } catch (e) {
+            return res.status(500).json({message: "Internal Server Error", data: "User not able to be updated."});
+        }
+        res.status(200).json({message: "OK", data: savedUser});
     });
         
     return router;
